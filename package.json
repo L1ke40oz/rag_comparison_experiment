@@ -1,0 +1,13 @@
+{
+  "name": "rag-comparison-experiment",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A browser-based lab for understanding text chunking and semantic retrieval.",
+  "scripts": {
+    "start": "node tools/serve.mjs",
+    "test": "node --test tests/*.test.js",
+    "check": "node --check dist/app.js && node --check dist/core.js && node --check dist/api.js"
+  },
+  "engines": { "node": ">=22" }
+}

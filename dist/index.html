@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="从文本切分到语义检索，让 RAG 的每一步都看得见。">
+  <meta name="referrer" content="no-referrer">
+  <title>RAG Lab · 检索实验台</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./style.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./" aria-label="RAG Lab 首页"><span class="brand-icon">r<span>↗</span></span><strong>RAG<span class="brand-light"> Lab</span></strong><span class="version">v0.1</span></a>
+    <div class="top-actions"><span class="local-badge"><i></i> 浏览器内实验</span><button id="api-open" class="button subtle"><span aria-hidden="true">⚙</span> API 设置 <span id="api-dot" class="status-dot"></span></button><a class="github-link" href="https://github.com/L1ke40oz/rag_comparison_experiment" target="_blank" rel="noopener noreferrer" aria-label="查看 GitHub 源码"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M12 .8a11.3 11.3 0 0 0-3.57 22c.57.1.77-.25.77-.54v-2.1c-3.14.68-3.8-1.33-3.8-1.33-.52-1.3-1.26-1.65-1.26-1.65-1.03-.7.08-.7.08-.7 1.13.09 1.73 1.17 1.73 1.17 1.01 1.73 2.64 1.23 3.28.94.1-.73.4-1.23.72-1.51-2.5-.29-5.13-1.25-5.13-5.57 0-1.23.44-2.24 1.16-3.03-.12-.29-.5-1.44.11-3 0 0 .95-.3 3.1 1.16a10.8 10.8 0 0 1 5.64 0c2.15-1.46 3.1-1.15 3.1-1.15.61 1.55.23 2.7.11 3 .72.78 1.16 1.79 1.16 3.02 0 4.33-2.64 5.28-5.15 5.56.4.35.76 1.04.76 2.1v3.1c0 .3.2.65.78.54A11.3 11.3 0 0 0 12 .8Z"/></svg></a></div>
+  </header>
+  <main>
+    <section class="intro"><div><div class="eyebrow">RETRIEVAL PLAYGROUND</div><h1>看见检索的每一步<span class="orange">.</span></h1><p>同一篇文本，不同的切分方式。探索你的问题如何找到答案片段。</p></div><div class="intro-note"><span class="note-line"></span><span>从 chunk 到相关性<br><strong>一个可以动手的 RAG 实验</strong></span></div></section>
+    <nav class="steps" aria-label="实验流程"><span><b>01</b> 导入文本</span><i>→</i><span><b>02</b> 观察切分</span><i>→</i><span><b>03</b> 建立向量索引</span><i>→</i><span><b>04</b> 提问与检索</span></nav>
+    <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+    <div class="workspace">
+      <aside class="controls">
+        <section class="panel control-section"><div class="section-label"><span class="step-number">01</span><h2>实验文本</h2></div>
+          <label class="upload-zone" for="file-input"><svg viewBox="0 0 24 24" width="27" height="27" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M12 16V3m-4 4 4-4 4 4M4 14v6h16v-6"/></svg><strong>选择一份文本</strong><span>.txt · UTF-8 · 最大 200 KB</span><input id="file-input" type="file" accept=".txt,text/plain"></label>
+          <div class="document-row"><span class="file-glyph" aria-hidden="true">≡</span><div><strong id="document-name">校园图书馆使用指南.txt</strong><span id="document-meta"></span></div><span class="tiny-tag">TXT</span></div>
+          <div class="text-actions"><button id="sample-load" class="text-button">载入示例</button><span>·</span><button id="paste-open" class="text-button">粘贴 / 编辑文本</button></div>
+        </section>
+        <section class="panel control-section"><div class="section-label"><span class="step-number">02</span><h2>切分配置</h2></div>
+          <fieldset class="strategy"><legend>切分方法</legend>
+            <label class="strategy-option"><input type="radio" name="method" value="fixed"><span><strong>固定字符长度</strong><small>等长切分，可保留重叠上下文</small></span><span class="radio-mark"></span></label>
+            <label class="strategy-option"><input type="radio" name="method" value="sentence"><span><strong>按句子聚合</strong><small>尽量保持句子完整</small></span><span class="radio-mark"></span></label>
+            <label class="strategy-option"><input type="radio" name="method" value="recursive" checked><span><strong>段落优先递归</strong><small>段落 → 行 → 句子 → 字符</small></span><span class="radio-mark"></span></label>
+          </fieldset>
+          <div class="field-row"><label for="chunk-size">块大小上限</label><div class="number-field"><input id="chunk-size" type="number" min="50" max="2000" step="10" value="320"><span>字符</span></div></div>
+          <input id="size-range" class="range" type="range" min="50" max="2000" step="10" value="320" aria-label="块大小上限">
+          <div class="field-row"><label for="chunk-overlap">重叠长度</label><div class="number-field"><input id="chunk-overlap" type="number" min="0" max="1999" value="60" disabled><span>字符</span></div></div>
+          <p id="overlap-hint" class="field-hint">此方法不重叠；超长片段按字符兜底。</p>
+          <button id="split-button" class="button primary full"><span aria-hidden="true">▥</span> 生成切分结果</button>
+        </section>
+        <div class="lab-tip"><span class="tip-icon">↳</span><p><strong>试着改变块大小</strong><br>观察一句话的上下文，是否落在了同一个 chunk 中。</p></div>
+      </aside>
+      <section class="panel inspection"><div class="panel-heading"><div class="tabs" role="tablist" aria-label="文本视图"><button id="chunks-tab" role="tab" aria-selected="true" aria-controls="chunks-view" class="tab active">切分结果 <span id="chunk-count" class="count-pill">0</span></button><button id="source-tab" role="tab" aria-selected="false" aria-controls="source-view" class="tab">原始文本</button></div><button id="export-button" class="text-button export-button"><span aria-hidden="true">↓</span> 导出实验</button></div>
+        <div class="summary-strip"><div><span>切分方法</span><strong id="method-summary">段落优先递归</strong></div><div><span>总字符数</span><strong id="total-chars">0</strong></div><div><span>平均块长度</span><strong id="average-chars">—</strong></div><div><span>索引状态</span><strong id="index-summary" class="muted">未建立</strong></div></div>
+        <div id="chunks-view" role="tabpanel" aria-labelledby="chunks-tab" class="chunks-view"><div id="chunks-list" class="chunks-list"></div></div>
+        <div id="source-view" role="tabpanel" aria-labelledby="source-tab" class="source-view" hidden><div class="source-toolbar"><span id="source-caption">点击 chunk 可在原文中定位</span><button id="source-clear" class="text-button">清除定位</button></div><pre id="source-content"></pre></div>
+        <div class="index-bar"><div><span id="index-indicator" class="index-indicator"></span><span id="index-detail">切分完成后，为片段建立语义向量索引</span></div><button id="index-button" class="button dark">建立索引 <span aria-hidden="true">↗</span></button></div>
+      </section>
+    </div>
+    <section class="panel retrieval"><div class="retrieval-heading"><div><div class="section-label"><span class="step-number">04</span><h2>提问，看看哪些片段被找到</h2></div><p>使用同一个 embedding 模型，对问题与文本片段进行语义匹配。</p></div><span class="tiny-tag">COSINE SIMILARITY</span></div>
+      <form id="search-form" class="search-form"><label class="sr-only" for="query">检索问题</label><span class="search-symbol" aria-hidden="true">⌕</span><input id="query" type="text" maxlength="2000" value="在校外怎么访问图书馆的论文数据库？" placeholder="输入你想问的问题…" required><label class="topk-field" for="top-k">Top-K <select id="top-k"><option value="1">1</option><option value="3" selected>3</option><option value="5">5</option><option value="10">10</option></select></label><button id="search-button" class="button primary" type="submit">检索 <span aria-hidden="true">→</span></button></form>
+      <div class="query-examples"><span>试着问</span><button class="example-query" data-query="忘记图书馆账户密码怎么办？">忘记密码怎么办？</button><button class="example-query" data-query="图书被其他人预约了还能续借吗？">被预约的书能续借吗？</button><button class="example-query" data-query="预约座位后没签到会怎么样？">座位未签到会怎样？</button></div>
+      <div id="results-meta" class="results-meta" hidden></div><div id="results-list" class="results-list"><div class="results-empty"><span class="empty-art" aria-hidden="true"><i></i><i></i><i></i><b>⌕</b></span><strong>你的第一次检索，从这里开始</strong><p>设置 API 并建立索引后，输入问题查看最相关的文本片段。</p><button id="empty-api-open" class="text-button">配置 embedding API ↗</button></div></div>
+      <p class="score-note">相似度表示向量的接近程度，不等于回答正确率。检索会返回最接近的片段，也可能没有能回答问题的内容。</p>
+    </section>
+    <footer><span><strong>RAG Lab</strong> · 用实验理解检索</span><span>文本切分与排序在浏览器完成 · 向量由你配置的 API 生成</span><button id="help-open" class="text-button">使用说明 ↗</button></footer>
+  </main>
+  <dialog id="api-dialog" class="dialog"><form id="api-form"><div class="dialog-heading"><div><div class="eyebrow">MODEL CONNECTION</div><h2>连接你的 embedding API</h2></div><button type="button" class="icon-button close-dialog" aria-label="关闭 API 设置">×</button></div><p class="dialog-intro">支持 OpenAI 兼容的 /embeddings 接口。服务需允许浏览器跨域调用。</p><label class="stacked-label" for="provider">服务商预设</label><select id="provider" class="wide-input"><option value="openrouter">OpenRouter</option><option value="custom">自定义兼容服务</option></select><label class="stacked-label" for="base-url">Base URL</label><input id="base-url" class="wide-input" type="url" value="https://openrouter.ai/api/v1" placeholder="https://your-provider.example/v1" autocomplete="off" required><p class="field-hint">自动追加 /embeddings，也可填写完整接口地址。</p><label class="stacked-label" for="api-key">API Key <span class="label-note">仅当前页面使用</span></label><div class="key-field"><input id="api-key" class="wide-input" type="password" placeholder="输入你自己的 API Key" autocomplete="off" spellcheck="false" required><button id="key-toggle" type="button" class="text-button" aria-label="显示 API Key">显示</button></div><label class="stacked-label" for="model-id">Embedding 模型 ID</label><input id="model-id" class="wide-input" value="liquid/lfm-2.5-embedding-350m:free" autocomplete="off" spellcheck="false" required><p class="field-hint">预设为免费模型示例；可用性、额度及中文效果以实际测试为准。</p><div class="field-row batch-row"><label for="batch-size">每批片段数</label><input id="batch-size" class="wide-input" type="number" min="1" max="32" value="8"></div><div class="privacy-note"><strong>数据发送到哪里？</strong><p>文本片段和问题会发送至上述地址。密钥只保存在当前页面内存，不写入浏览器存储或导出文件；刷新页面后需重新填写。</p></div><div id="api-test-status" class="inline-status" role="status" aria-live="polite"></div><div class="dialog-actions"><button id="clear-key" type="button" class="text-button">清除密钥</button><button id="api-test" type="button" class="button subtle">测试连接</button><button type="submit" class="button primary">完成设置</button></div><p class="field-hint">测试连接会发送一条示例文本，可能消耗服务额度。</p></form></dialog>
+  <dialog id="paste-dialog" class="dialog paste-dialog"><form id="paste-form"><div class="dialog-heading"><h2>粘贴或编辑文本</h2><button type="button" class="icon-button close-dialog" aria-label="关闭文本编辑">×</button></div><label class="stacked-label" for="paste-text">实验文本 · 最多 50,000 字符</label><textarea id="paste-text" rows="14" placeholder="把要实验的文本粘贴到这里…" required></textarea><div class="dialog-actions"><button type="button" class="button subtle close-dialog">取消</button><button class="button primary" type="submit">使用这段文本</button></div></form></dialog>
+  <dialog id="help-dialog" class="dialog"><div class="dialog-heading"><h2>开始你的第一个实验</h2><button class="icon-button close-dialog" aria-label="关闭说明">×</button></div><ol class="help-list"><li>载入示例、上传 UTF-8 的 .txt，或粘贴文本。</li><li>选择切分方法和块大小，生成切分结果。点击片段可定位原文。</li><li>填写 Base URL、API Key 和 embedding 模型 ID，测试连接。</li><li>建立索引后输入问题，观察命中片段及其上下文。</li><li>换一种切分方法，重新建立索引，再用同一个问题检索并导出结果。</li></ol><p class="privacy-note">块大小按 Unicode 字符计数；原文位置使用 UTF-16 偏移。句子与递归切分不重叠，超长句子按字符兜底。模型的 token 上限与字符数不同，块过大时可能被 API 拒绝或截断。</p><p class="dialog-intro">修改文本、切分参数或 API 配置会使旧索引失效。没有相关内容时，排名第一的片段也不一定能回答问题。</p><a class="text-button" href="https://github.com/L1ke40oz/rag_comparison_experiment#readme" target="_blank" rel="noopener noreferrer">项目说明与学习指南 ↗</a></dialog>
+</body>
+</html>
