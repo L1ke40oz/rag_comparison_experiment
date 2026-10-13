@@ -1,9 +1,12 @@
-import { chunkText, charCount, rankChunks } from "./core.js";
+import { chunkText, charCount, rankChunks, rerankCandidates } from "./core.js";
 import {
   validateConfig,
   embeddingEndpoint,
   requestEmbeddings,
   embedInBatches,
+  validateRerankConfig,
+  rerankEndpoint,
+  requestRerank,
 } from "./api.js";
 import { sample } from "./sample.js";
 
@@ -27,6 +30,7 @@ const state = {
   selected: null,
   lastQuery: null,
   searchMs: null,
+  retrieval: null,
 };
 let fileRevision = 0;
 
@@ -44,6 +48,42 @@ function readConfig() {
   };
 }
 
+function readRerankConfig() {
+  const embedding = readConfig();
+  const shared = $("rerank-share").checked;
+  return {
+    baseUrl: shared
+      ? embeddingEndpoint(embedding.baseUrl).replace(/\/embeddings$/, "")
+      : $("rerank-base-url").value.trim(),
+    apiKey: shared ? embedding.apiKey : $("rerank-key").value.trim(),
+    model: $("rerank-model").value.trim(),
+  };
+}
+
+function updateRerankBadge() {
+  let configured = false;
+  try {
+    validateRerankConfig(readRerankConfig());
+    configured = true;
+  } catch {
+    /* Missing configuration. */
+  }
+  $("rerank-dot").classList.toggle("ready", configured);
+}
+
+// Rerank settings affect searches, not the embedding index. Do not invalidate
+// or cancel unrelated indexing when the user edits a reranker setting.
+function invalidateRetrieval() {
+  if (["search", "rerank-test"].includes(state.busy)) {
+    state.revision++;
+    state.controller?.abort();
+    state.controller = null;
+    state.busy = null;
+  }
+  clearResults();
+  syncControls();
+}
+
 function updateConfigBadge() {
   let configured = false;
   try {
@@ -53,6 +93,8 @@ function updateConfigBadge() {
     /* Not configured yet. */
   }
   $("api-dot").classList.toggle("ready", configured);
+  updateRerankBadge();
+  if ($("rerank-share").checked) updateSharedRerankFields();
 }
 
 function syncControls() {
@@ -70,6 +112,9 @@ function syncControls() {
     state.busy === "search" ? "检索中…" : "检索 →";
   $("api-test").disabled = busy;
   $("api-test").textContent = state.busy === "test" ? "测试中…" : "测试连接";
+  $("rerank-test").disabled = busy;
+  $("rerank-test").textContent =
+    state.busy === "rerank-test" ? "测试中…" : "测试连接";
   $("export-button").disabled = !state.chunks.length || busy;
 }
 
@@ -92,6 +137,10 @@ function clearResults() {
   state.results = [];
   state.lastQuery = null;
   state.searchMs = null;
+  state.retrieval = null;
+  $("rank-comparison").hidden = true;
+  $("comparison-body").replaceChildren();
+  $("rerank-outcome").hidden = true;
   $("results-meta").hidden = true;
   $("results-list").replaceChildren();
   const empty = document.createElement("div");
@@ -302,9 +351,12 @@ async function operation(kind, action) {
     );
   } catch (error) {
     if (revision !== state.revision || controller.signal.aborted) return;
-    if (kind === "test") {
-      $("api-test-status").textContent = error.message;
-      $("api-test-status").classList.add("error");
+    if (kind === "test" || kind === "rerank-test") {
+      const status = $(
+        kind === "test" ? "api-test-status" : "rerank-test-status",
+      );
+      status.textContent = error.message;
+      status.classList.add("error");
     } else notify(error.message, true);
   } finally {
     if (state.controller === controller) {
@@ -374,13 +426,16 @@ $("index-button").addEventListener("click", () => {
 });
 
 function renderResults() {
+  const reranked = state.retrieval?.status === "reranked";
   $("results-list").replaceChildren();
   $("results-meta").hidden = false;
   $("results-meta").replaceChildren(
     element(
       "span",
       "",
-      `找到 ${state.results.length} 个片段 · ${state.indexModel.model}`,
+      reranked
+        ? `重排后 Top-${state.results.length} · ${state.retrieval.rerank.model}`
+        : `向量 Top-${state.results.length} · ${state.indexModel.model}`,
     ),
     element(
       "span",
@@ -388,6 +443,7 @@ function renderResults() {
       `请求与排序耗时 ${(state.searchMs / 1000).toFixed(2)} 秒`,
     ),
   );
+  renderRerankComparison();
   for (const [index, result] of state.results.entries()) {
     const card = element("article", "result-card");
     const content = element("div", "");
@@ -400,20 +456,76 @@ function renderResults() {
       ),
       locate,
     );
+    if (reranked)
+      title.append(
+        element(
+          "span",
+          "rank-change",
+          `向量 #${result.vectorRank} → 重排 #${result.rerankRank}`,
+        ),
+      );
     content.append(title, element("div", "result-text", result.text));
-    const score = element("div", "result-score", result.score.toFixed(4));
-    score.append(element("span", "", "余弦相似度"));
+    const score = element(
+      "div",
+      "result-score",
+      (reranked ? result.rerankScore : result.score).toFixed(4),
+    );
+    score.append(element("span", "", reranked ? "Rerank 分数" : "余弦相似度"));
+    if (reranked)
+      score.append(
+        element("small", "secondary-score", `余弦 ${result.score.toFixed(4)}`),
+      );
     const meter = element("div", "score-meter");
     const fill = element("i", "");
     fill.style.width = `${Math.max(0, result.score) * 100}%`;
     meter.append(fill);
-    score.append(meter);
+    if (!reranked) score.append(meter);
     card.append(
       element("div", "result-rank", String(index + 1).padStart(2, "0")),
       content,
       score,
     );
     $("results-list").append(card);
+  }
+}
+
+function renderRerankComparison() {
+  const info = state.retrieval;
+  if (!info || info.status === "vector") return;
+  const failed = info.status === "rerank-failed";
+  $("rerank-outcome").hidden = false;
+  $("rerank-outcome").classList.toggle("error", failed);
+  $("rerank-outcome").textContent = failed
+    ? `Rerank 失败：${info.error} 以下仅展示向量结果，未完成重排序。`
+    : `已召回 ${info.candidateCount} 个候选 → 重排 → 展示前 ${state.results.length} 个。向量阶段 ${(info.vectorMs / 1000).toFixed(2)} 秒，重排阶段 ${(info.rerankMs / 1000).toFixed(2)} 秒。`;
+  if (failed) return;
+  $("rank-comparison").hidden = false;
+  $("comparison-summary").textContent =
+    `重排序前后排名对比 · 全部 ${info.candidateCount} 个候选`;
+  for (const result of info.rankedCandidates) {
+    const row = element("tr", result.rerankRank <= info.topK ? "in-topk" : "");
+    const chunk = element("td", "");
+    const button = element(
+      "button",
+      "text-button",
+      `CHUNK ${String(result.id).padStart(2, "0")}`,
+    );
+    button.addEventListener("click", () => locateChunk(result));
+    chunk.append(button);
+    const change = result.vectorRank - result.rerankRank;
+    row.append(
+      chunk,
+      element("td", "", `#${result.vectorRank}`),
+      element("td", "", `#${result.rerankRank}`),
+      element(
+        "td",
+        change > 0 ? "rank-up" : change < 0 ? "rank-down" : "",
+        change > 0 ? `↑ ${change}` : change < 0 ? `↓ ${-change}` : "—",
+      ),
+      element("td", "", result.score.toFixed(4)),
+      element("td", "", result.rerankScore.toFixed(4)),
+    );
+    $("comparison-body").append(row);
   }
 }
 
@@ -436,16 +548,90 @@ $("search-form").addEventListener("submit", (event) => {
     return;
   }
   const topK = Number($("top-k").value);
+  const useRerank = $("rerank-enabled").checked;
+  const candidateLimit = useRerank ? Number($("candidate-count").value) : topK;
+  if (
+    useRerank &&
+    (!Number.isInteger(candidateLimit) ||
+      candidateLimit < topK ||
+      candidateLimit > 100)
+  ) {
+    notify(
+      "候选数必须是 1–100 的整数，且不少于最终 Top-K；实际候选数不超过片段总数。",
+      true,
+    );
+    return;
+  }
+  let rerankConfig;
+  if (useRerank) {
+    try {
+      rerankConfig = readRerankConfig();
+      validateRerankConfig(rerankConfig);
+    } catch (error) {
+      $("rerank-dialog").showModal();
+      notify(error.message, true);
+      return;
+    }
+  }
   clearResults();
   operation("search", async (signal, current) => {
     const started = performance.now();
     const [vector] = await requestEmbeddings(config, [query], { signal });
     if (!current()) return;
-    state.results = rankChunks(state.chunks, state.vectors, vector, topK);
+    const candidates = rankChunks(
+      state.chunks,
+      state.vectors,
+      vector,
+      candidateLimit,
+    );
+    const info = {
+      status: "vector",
+      candidateCount: candidates.length,
+      candidateLimit,
+      topK,
+      vectorMs: performance.now() - started,
+      candidates,
+    };
+    let results = candidates.slice(0, topK);
+    if (useRerank) {
+      info.rerank = {
+        endpoint: rerankEndpoint(rerankConfig.baseUrl),
+        model: rerankConfig.model,
+      };
+      const rerankStarted = performance.now();
+      notify(`已召回 ${candidates.length} 个候选，正在调用 Rerank…`);
+      try {
+        const scores = await requestRerank(
+          rerankConfig,
+          query,
+          candidates.map((candidate) => candidate.text),
+          { signal },
+        );
+        if (!current()) return;
+        info.rankedCandidates = rerankCandidates(candidates, scores);
+        info.status = "reranked";
+        results = info.rankedCandidates.slice(0, topK);
+      } catch (error) {
+        if (!current()) return;
+        info.status = "rerank-failed";
+        info.error = error.message;
+      }
+      info.rerankMs = performance.now() - rerankStarted;
+    }
+    if (!current()) return;
+    state.results = results;
+    state.retrieval = info;
     state.lastQuery = query;
     state.searchMs = performance.now() - started;
     renderResults();
-    notify(`检索完成，按余弦相似度展示前 ${state.results.length} 个片段。`);
+    notify(
+      info.status === "rerank-failed"
+        ? "重排序失败，已保留本次向量检索结果。请检查 Rerank 设置或测试连接。"
+        : info.status === "reranked"
+          ? `重排序完成，展示前 ${state.results.length} 个片段；下方可对比排名变化。`
+          : `检索完成，按余弦相似度展示前 ${state.results.length} 个片段。`,
+      info.status === "rerank-failed",
+    );
   });
 });
 
@@ -485,6 +671,7 @@ for (const id of ["base-url", "api-key", "model-id"])
     invalidate();
     updateConfigBadge();
     $("api-test-status").textContent = "";
+    $("rerank-test-status").textContent = "";
     $("notice").hidden = true;
   });
 $("provider").addEventListener("change", () => {
@@ -515,6 +702,117 @@ $("key-toggle").addEventListener("click", () => {
     "aria-label",
     show ? "隐藏 API Key" : "显示 API Key",
   );
+});
+
+function updateSharedRerankFields() {
+  const shared = $("rerank-share").checked;
+  $("rerank-base-url").disabled = shared;
+  $("rerank-key").disabled = shared;
+  $("rerank-key-toggle").disabled = shared;
+  $("rerank-clear-key").disabled = shared;
+  $("rerank-independent").hidden = shared;
+  $("rerank-share-hint").hidden = !shared;
+  if (shared) {
+    try {
+      $("rerank-share-hint").textContent =
+        `使用 ${rerankEndpoint(readRerankConfig().baseUrl)}；模型 ID 独立填写。`;
+    } catch {
+      $("rerank-share-hint").textContent =
+        "请先在 embedding 设置中填写地址和 Key；Rerank 模型 ID 独立填写。";
+    }
+  }
+}
+
+function rerankSettingsChanged() {
+  invalidateRetrieval();
+  updateSharedRerankFields();
+  updateRerankBadge();
+  $("rerank-test-status").textContent = "";
+  $("rerank-test-status").classList.remove("error");
+  $("notice").hidden = true;
+}
+
+$("rerank-open").addEventListener("click", () =>
+  $("rerank-dialog").showModal(),
+);
+$("rerank-enabled").addEventListener("change", () => {
+  $("candidate-count").disabled = !$("rerank-enabled").checked;
+  $("retrieval-mode").textContent = $("rerank-enabled").checked
+    ? "VECTOR → RERANK"
+    : "VECTOR SEARCH";
+  invalidateRetrieval();
+  $("notice").hidden = true;
+});
+$("candidate-count").addEventListener("input", () => {
+  invalidateRetrieval();
+  $("notice").hidden = true;
+});
+$("rerank-share").addEventListener("change", rerankSettingsChanged);
+for (const id of ["rerank-base-url", "rerank-key", "rerank-model"])
+  $(id).addEventListener("input", rerankSettingsChanged);
+$("rerank-provider").addEventListener("change", () => {
+  const presets = {
+    jina: { baseUrl: "https://api.jina.ai/v1", model: "jina-reranker-v3.5" },
+    siliconflow: {
+      baseUrl: "https://api.siliconflow.cn/v1",
+      model: "BAAI/bge-reranker-v2-m3",
+    },
+    custom: { baseUrl: "", model: "" },
+  };
+  const preset = presets[$("rerank-provider").value];
+  $("rerank-share").checked = false;
+  $("rerank-base-url").value = preset.baseUrl;
+  $("rerank-model").value = preset.model;
+  $("rerank-key").value = "";
+  rerankSettingsChanged();
+});
+$("rerank-clear-key").addEventListener("click", () => {
+  $("rerank-key").value = "";
+  rerankSettingsChanged();
+  $("rerank-test-status").textContent = "独立密钥已清除，向量索引已保留。";
+});
+$("rerank-key-toggle").addEventListener("click", () => {
+  const show = $("rerank-key").type === "password";
+  $("rerank-key").type = show ? "text" : "password";
+  $("rerank-key-toggle").textContent = show ? "隐藏" : "显示";
+  $("rerank-key-toggle").setAttribute(
+    "aria-label",
+    show ? "隐藏 Rerank API Key" : "显示 Rerank API Key",
+  );
+});
+$("rerank-dialog").addEventListener("close", () => {
+  $("rerank-key").type = "password";
+  $("rerank-key-toggle").textContent = "显示";
+  $("rerank-key-toggle").setAttribute("aria-label", "显示 Rerank API Key");
+});
+$("rerank-test").addEventListener("click", () =>
+  operation("rerank-test", async (signal, current) => {
+    $("rerank-test-status").textContent = "正在发送示例问题和两个片段…";
+    $("rerank-test-status").classList.remove("error");
+    const results = await requestRerank(
+      readRerankConfig(),
+      "忘记密码后怎么办？",
+      ["可通过绑定邮箱重置密码。", "图书馆周末九点开放。"],
+      { signal },
+    );
+    if (current())
+      $("rerank-test-status").textContent =
+        `连接成功，收到 ${results.length} 个有效候选评分；已检查返回编号与分数格式。`;
+  }),
+);
+$("rerank-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  try {
+    validateRerankConfig(readRerankConfig());
+    updateRerankBadge();
+    $("rerank-dialog").close();
+    notify(
+      "Rerank 配置已填写，向量索引已保留。启用重排序后重新检索，即可对比排名变化。",
+    );
+  } catch (error) {
+    $("rerank-test-status").textContent = error.message;
+    $("rerank-test-status").classList.add("error");
+  }
 });
 
 for (const id of ["api-open", "empty-api-open"])
@@ -578,6 +876,7 @@ $("query").addEventListener("input", () => {
     state.busy = null;
     syncControls();
   }
+  $("notice").hidden = true;
   clearResults();
 });
 $("top-k").addEventListener("change", () => {
@@ -639,7 +938,7 @@ $("file-input").addEventListener("change", async () => {
 $("export-button").addEventListener("click", () => {
   const config = readConfig();
   const snapshot = {
-    format: "rag-lab-experiment-v1",
+    format: "rag-lab-experiment-v2",
     createdAt: new Date().toISOString(),
     document: {
       name: state.name,
@@ -660,7 +959,25 @@ $("export-button").addEventListener("click", () => {
           query: state.lastQuery,
           topK: state.results.length,
           durationMs: Math.round(state.searchMs),
-          metric: "cosine_similarity",
+          metric:
+            state.retrieval.status === "reranked"
+              ? "rerank_relevance_score"
+              : "cosine_similarity",
+          vectorMetric: "cosine_similarity",
+          status: state.retrieval.status,
+          topKRequested: state.retrieval.topK,
+          candidateLimit: state.retrieval.candidateLimit,
+          candidateCount: state.retrieval.candidateCount,
+          candidates: state.retrieval.candidates,
+          vectorDurationMs: Math.round(state.retrieval.vectorMs),
+          rerank: state.retrieval.rerank
+            ? {
+                ...state.retrieval.rerank,
+                durationMs: Math.round(state.retrieval.rerankMs),
+                error: state.retrieval.error ?? null,
+                rankedCandidates: state.retrieval.rankedCandidates ?? null,
+              }
+            : null,
           results: state.results,
         }
       : null,

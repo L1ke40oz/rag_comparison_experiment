@@ -1,6 +1,6 @@
 import { normalizeVector } from "./core.js";
 
-export function embeddingEndpoint(baseUrl) {
+function apiEndpoint(baseUrl, resource) {
   let url;
   try {
     url = new URL(baseUrl.trim());
@@ -13,9 +13,13 @@ export function embeddingEndpoint(baseUrl) {
   if (url.protocol !== "https:" && !(url.protocol === "http:" && isLoopback))
     throw new Error("API 地址必须使用 HTTPS；本机开发地址可使用 HTTP。");
   url.pathname = url.pathname.replace(/\/+$/, "");
-  if (!url.pathname.endsWith("/embeddings")) url.pathname += "/embeddings";
+  if (!url.pathname.endsWith(`/${resource}`)) url.pathname += `/${resource}`;
   return url.toString();
 }
+
+export const embeddingEndpoint = (baseUrl) =>
+  apiEndpoint(baseUrl, "embeddings");
+export const rerankEndpoint = (baseUrl) => apiEndpoint(baseUrl, "rerank");
 
 export function validateConfig(config) {
   const endpoint = embeddingEndpoint(config.baseUrl);
@@ -25,6 +29,44 @@ export function validateConfig(config) {
   if (/[\r\n]/.test(config.apiKey) || /[\r\n]/.test(config.model))
     throw new Error("API Key 和模型 ID 不能包含换行。");
   return endpoint;
+}
+
+export function validateRerankConfig(config) {
+  const endpoint = rerankEndpoint(config.baseUrl);
+  if (!config.apiKey?.trim())
+    throw new Error(
+      "请在 Rerank 设置中填写 API Key，或选择复用 embedding 配置。",
+    );
+  if (!config.model?.trim()) throw new Error("请填写 Rerank 模型 ID。");
+  if (/[\r\n]/.test(config.apiKey) || /[\r\n]/.test(config.model))
+    throw new Error("API Key 和模型 ID 不能包含换行。");
+  return endpoint;
+}
+
+// Ask for all candidates, so the UI can compare complete before/after ranks.
+export function decodeRerank(body, count) {
+  if (!Array.isArray(body?.results) || body.results.length !== count)
+    throw new Error("Rerank 返回的结果数量与候选片段数量不一致。");
+  const seen = new Set();
+  const results = body.results.map((item) => {
+    if (
+      !Number.isInteger(item.index) ||
+      item.index < 0 ||
+      item.index >= count ||
+      seen.has(item.index)
+    )
+      throw new Error("Rerank 返回了重复或无效的候选编号。");
+    if (
+      typeof item.relevance_score !== "number" ||
+      !Number.isFinite(item.relevance_score)
+    )
+      throw new Error("Rerank 返回的相关性分数无效。");
+    seen.add(item.index);
+    return { index: item.index, relevanceScore: item.relevance_score };
+  });
+  return results.sort(
+    (a, b) => b.relevanceScore - a.relevanceScore || a.index - b.index,
+  );
 }
 
 // Index fields are checked and reordered: response order is not guaranteed.
@@ -72,6 +114,25 @@ export async function requestEmbeddings(
     !input.every((text) => typeof text === "string" && text.trim())
   )
     throw new Error("不能对空文本建立向量。");
+  const body = await requestJson(
+    config,
+    endpoint,
+    {
+      model: config.model.trim(),
+      input,
+      encoding_format: "float",
+    },
+    { signal, fetchFn, timeoutMs },
+  );
+  return decodeEmbeddings(body, input.length);
+}
+
+async function requestJson(
+  config,
+  endpoint,
+  payload,
+  { signal, fetchFn = globalThis.fetch, timeoutMs = 45000 } = {},
+) {
   const timeout = AbortSignal.timeout(timeoutMs);
   const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
   let response;
@@ -82,11 +143,7 @@ export async function requestEmbeddings(
         Authorization: `Bearer ${config.apiKey.trim()}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        model: config.model.trim(),
-        input,
-        encoding_format: "float",
-      }),
+      body: JSON.stringify(payload),
       signal: combined,
       credentials: "omit",
       redirect: "error",
@@ -109,7 +166,33 @@ export async function requestEmbeddings(
   } catch {
     throw new Error("API 没有返回有效的 JSON，请检查接口地址。");
   }
-  return decodeEmbeddings(body, input.length);
+  return body;
+}
+
+export async function requestRerank(config, query, documents, options = {}) {
+  const endpoint = validateRerankConfig(config);
+  if (typeof query !== "string" || !query.trim())
+    throw new Error("请输入重排序问题。");
+  if (
+    !Array.isArray(documents) ||
+    !documents.length ||
+    documents.length > 100 ||
+    !documents.every((text) => typeof text === "string" && text.trim())
+  )
+    throw new Error("Rerank 需要 1–100 个非空候选片段。");
+  const body = await requestJson(
+    config,
+    endpoint,
+    {
+      model: config.model.trim(),
+      query: query.trim(),
+      documents,
+      top_n: documents.length,
+      return_documents: false,
+    },
+    options,
+  );
+  return decodeRerank(body, documents.length);
 }
 
 export async function embedInBatches(

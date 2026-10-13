@@ -19,7 +19,7 @@
       <a class="brand" href="./" aria-label="RAG Lab 首页"
         ><span class="brand-icon">r<span>↗</span></span
         ><strong>RAG<span class="brand-light"> Lab</span></strong
-        ><span class="version">v0.1</span></a
+        ><span class="version">v0.2</span></a
       >
       <div class="top-actions">
         <span class="local-badge"><i></i> 浏览器内实验</span
@@ -273,7 +273,27 @@
             </div>
             <p>使用同一个 embedding 模型，对问题与文本片段进行语义匹配。</p>
           </div>
-          <span class="tiny-tag">COSINE SIMILARITY</span>
+          <span id="retrieval-mode" class="tiny-tag">VECTOR SEARCH</span>
+        </div>
+        <div class="rerank-toolbar">
+          <label class="rerank-switch"
+            ><input id="rerank-enabled" type="checkbox" />启用 Rerank
+            <span>重排序</span></label
+          >
+          <label class="candidate-field" for="candidate-count"
+            >候选数
+            <input
+              id="candidate-count"
+              type="number"
+              min="1"
+              max="100"
+              value="10"
+              disabled
+          /></label>
+          <button id="rerank-open" class="text-button" type="button">
+            Rerank API 设置 <span id="rerank-dot" class="status-dot"></span> ↗
+          </button>
+          <span class="rerank-hint">先召回候选，再重排取 Top-K</span>
         </div>
         <form id="search-form" class="search-form">
           <label class="sr-only" for="query">检索问题</label
@@ -317,6 +337,31 @@
           </button>
         </div>
         <div id="results-meta" class="results-meta" hidden></div>
+        <div
+          id="rerank-outcome"
+          class="rerank-outcome"
+          role="status"
+          aria-live="polite"
+          hidden
+        ></div>
+        <details id="rank-comparison" class="rank-comparison" hidden open>
+          <summary id="comparison-summary">重排序前后排名对比</summary>
+          <div class="comparison-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">片段</th>
+                  <th scope="col">向量排名</th>
+                  <th scope="col">重排排名</th>
+                  <th scope="col">变化</th>
+                  <th scope="col">余弦相似度</th>
+                  <th scope="col">Rerank 分数</th>
+                </tr>
+              </thead>
+              <tbody id="comparison-body"></tbody>
+            </table>
+          </div>
+        </details>
         <div id="results-list" class="results-list">
           <div class="results-empty">
             <span class="empty-art" aria-hidden="true"
@@ -329,7 +374,8 @@
           </div>
         </div>
         <p class="score-note">
-          相似度表示向量的接近程度，不等于回答正确率。检索会返回最接近的片段，也可能没有能回答问题的内容。
+          余弦相似度与 Rerank
+          分数属于不同评分体系，不能直接比较，也不等于回答正确率。重排序只能调整已召回候选的顺序，不能补回没有召回的内容。
         </p>
       </section>
       <footer>
@@ -437,6 +483,108 @@
         <p class="field-hint">测试连接会发送一条示例文本，可能消耗服务额度。</p>
       </form>
     </dialog>
+    <dialog id="rerank-dialog" class="dialog">
+      <form id="rerank-form">
+        <div class="dialog-heading">
+          <div>
+            <div class="eyebrow">RERANK CONNECTION</div>
+            <h2>连接你的 rerank API</h2>
+          </div>
+          <button
+            type="button"
+            class="icon-button close-dialog"
+            aria-label="关闭 Rerank 设置"
+          >
+            ×
+          </button>
+        </div>
+        <p class="dialog-intro">
+          支持 Jina / SiliconFlow 风格的 /rerank
+          接口，返回候选编号与相关性分数。服务需允许浏览器跨域调用。
+        </p>
+        <label class="stacked-label" for="rerank-provider">服务商预设</label>
+        <select id="rerank-provider" class="wide-input">
+          <option value="jina">Jina AI</option>
+          <option value="siliconflow">SiliconFlow（硅基流动）</option>
+          <option value="custom">自定义兼容服务</option>
+        </select>
+        <label class="share-config"
+          ><input id="rerank-share" type="checkbox" />复用 embedding 的地址和
+          API Key</label
+        >
+        <p id="rerank-share-hint" class="field-hint" hidden>
+          模型 ID 独立填写；请求会发到 embedding 服务的 /rerank 接口。
+        </p>
+        <div id="rerank-independent">
+          <label class="stacked-label" for="rerank-base-url">Base URL</label>
+          <input
+            id="rerank-base-url"
+            class="wide-input"
+            type="url"
+            value="https://api.jina.ai/v1"
+            placeholder="https://your-provider.example/v1"
+            autocomplete="off"
+            required
+          />
+          <p class="field-hint">自动追加 /rerank，也可填写完整接口地址。</p>
+          <label class="stacked-label" for="rerank-key"
+            >API Key <span class="label-note">仅当前页面使用</span></label
+          >
+          <div class="key-field">
+            <input
+              id="rerank-key"
+              class="wide-input"
+              type="password"
+              placeholder="输入重排序服务的 API Key"
+              autocomplete="off"
+              spellcheck="false"
+              required
+            /><button
+              id="rerank-key-toggle"
+              type="button"
+              class="text-button"
+              aria-label="显示 Rerank API Key"
+            >
+              显示
+            </button>
+          </div>
+        </div>
+        <label class="stacked-label" for="rerank-model">Rerank 模型 ID</label>
+        <input
+          id="rerank-model"
+          class="wide-input"
+          value="jina-reranker-v3.5"
+          autocomplete="off"
+          spellcheck="false"
+          required
+        />
+        <p class="field-hint">
+          使用专门的 reranker 模型；模型权限、费用和额度以服务商为准。
+        </p>
+        <div class="privacy-note">
+          <strong>只发送候选片段</strong>
+          <p>
+            启用后会将问题与召回的候选文本发送至重排序服务。密钥仅保存在当前页面内存，不写入导出文件。切换服务商会清除此处密钥。
+          </p>
+        </div>
+        <div
+          id="rerank-test-status"
+          class="inline-status"
+          role="status"
+          aria-live="polite"
+        ></div>
+        <div class="dialog-actions">
+          <button id="rerank-clear-key" type="button" class="text-button">
+            清除独立密钥</button
+          ><button id="rerank-test" type="button" class="button subtle">
+            测试连接</button
+          ><button type="submit" class="button primary">完成设置</button>
+        </div>
+        <p class="field-hint">
+          测试会发送一个示例问题和两个片段，可能消耗服务额度。
+        </p>
+      </form>
+    </dialog>
     <dialog id="paste-dialog" class="dialog paste-dialog">
       <form id="paste-form">
         <div class="dialog-heading">
@@ -475,6 +623,10 @@
         <li>选择切分方法和块大小，生成切分结果。点击片段可定位原文。</li>
         <li>填写 Base URL、API Key 和 embedding 模型 ID，测试连接。</li>
         <li>建立索引后输入问题，观察命中片段及其上下文。</li>
+        <li>
+          可选：配置 Rerank API，启用重排序，设置不少于最终 Top-K
+          的候选数。查看排名变化；修改 Rerank 配置无需重建向量索引。
+        </li>
         <li>换一种切分方法，重新建立索引，再用同一个问题检索并导出结果。</li>
       </ol>
       <p class="privacy-note">

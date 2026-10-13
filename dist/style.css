@@ -1183,6 +1183,195 @@ footer .text-button {
 .help-list li {
   margin-bottom: 7px;
 }
+.rerank-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin: 19px 0 -6px;
+  padding: 12px 14px;
+  background: #f7f9f2;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 11px;
+  color: #6a775e;
+}
+.rerank-switch,
+.share-config {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.rerank-switch input,
+.share-config input {
+  accent-color: var(--accent);
+  width: 15px;
+  height: 15px;
+  margin: 0;
+}
+.rerank-switch span {
+  color: #929b87;
+  font-size: 10px;
+}
+.candidate-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.candidate-field input {
+  width: 63px;
+  border: 1px solid #dce2d2;
+  border-radius: 5px;
+  background: white;
+  padding: 4px 7px;
+  font:
+    11px ui-monospace,
+    Consolas,
+    monospace;
+}
+.candidate-field input:disabled {
+  opacity: 0.5;
+}
+#rerank-open {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.rerank-hint {
+  margin-left: auto;
+  color: #8b9580;
+  font-size: 10px;
+}
+.share-config {
+  font-size: 12px;
+  margin: 17px 0 7px;
+}
+.rerank-outcome {
+  border: 1px solid #dce5d8;
+  background: #f1f6ee;
+  border-radius: 7px;
+  padding: 11px 14px;
+  margin: 16px 0;
+  color: #527050;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.rerank-outcome.error {
+  color: #a34a31;
+  background: #fff0e9;
+  border-color: #f0d9ca;
+}
+.rank-comparison {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  margin: 15px 0 18px;
+}
+.rank-comparison summary {
+  cursor: pointer;
+  background: #f8faf3;
+  padding: 11px 15px;
+  color: #6d7c5e;
+  font-size: 11px;
+}
+.comparison-scroll {
+  overflow: auto;
+  max-height: 320px;
+}
+.rank-comparison table {
+  border-collapse: collapse;
+  width: 100%;
+  white-space: nowrap;
+  font:
+    11px ui-monospace,
+    Consolas,
+    monospace;
+}
+.rank-comparison th,
+.rank-comparison td {
+  padding: 10px 14px;
+  text-align: left;
+  border-bottom: 1px solid #edf0e6;
+  color: #7c8b6c;
+}
+.rank-comparison th {
+  font-size: 10px;
+  font-weight: 500;
+  background: #fbfcf8;
+  position: sticky;
+  top: 0;
+}
+.rank-comparison .in-topk {
+  background: #fffaf5;
+}
+.rank-comparison .rank-up {
+  color: #3f7661;
+}
+.rank-comparison .rank-down {
+  color: #b47855;
+}
+.rank-change {
+  font:
+    9px ui-monospace,
+    Consolas,
+    monospace;
+  color: #b27b50;
+  background: #fff0df;
+  padding: 2px 5px;
+  border-radius: 4px;
+}
+.secondary-score {
+  display: block;
+  font:
+    9px ui-monospace,
+    Consolas,
+    monospace;
+  color: #929c84;
+  margin-top: 10px;
+}
+@media (max-width: 700px) {
+  .rerank-toolbar {
+    gap: 12px;
+    padding: 11px;
+    margin-top: 15px;
+  }
+  .rerank-hint {
+    width: 100%;
+    margin-left: 0;
+  }
+  .rerank-switch {
+    font-size: 11px;
+  }
+  .rerank-switch span {
+    display: none;
+  }
+  .candidate-field {
+    font-size: 10px;
+    gap: 5px;
+  }
+  .candidate-field input {
+    width: 49px;
+  }
+  #rerank-open {
+    font-size: 10px;
+    margin-left: auto;
+  }
+  .secondary-score {
+    font-size: 8px;
+  }
+  .rank-comparison th,
+  .rank-comparison td {
+    padding: 9px 11px;
+  }
+  .rerank-outcome {
+    font-size: 10px;
+  }
+  .rank-change {
+    font-size: 8px;
+  }
+}
+
 @media (min-width: 1450px) {
   main {
     padding-top: 42px;

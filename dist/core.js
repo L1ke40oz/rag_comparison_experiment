@@ -138,3 +138,14 @@ export function rankChunks(chunks, embeddings, queryEmbedding, topK = 3) {
     .sort((a, b) => b.score - a.score || a.id - b.id)
     .slice(0, topK);
 }
+
+export function rerankCandidates(candidates, results) {
+  // API index refers to the position in the submitted candidate array, not
+  // the chunk ID. Preserve the cosine score as a separate value.
+  return results.map(({ index, relevanceScore }, rank) => ({
+    ...candidates[index],
+    vectorRank: index + 1,
+    rerankRank: rank + 1,
+    rerankScore: relevanceScore,
+  }));
+}

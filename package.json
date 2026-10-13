@@ -1,6 +1,6 @@
 {
   "name": "rag-comparison-experiment",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "A browser-based lab for understanding text chunking and semantic retrieval.",
